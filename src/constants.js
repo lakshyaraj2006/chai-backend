@@ -4,3 +4,5 @@ export const PORT = 8080 || process.env.PORT;
 export const CORS_ORIGINS = process.env.CORS_ORIGINS
 ? process.env.CORS_ORIGINS.split(/\s*,\s*/).filter(Boolean)
 : "*";
+export const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET;
+export const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET;
