@@ -2,7 +2,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { User } from "../models/user.model.js";
-import {uploadOnCloudinary} from "../utils/cloudinary.js";
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
 
 const registerUser = asyncHandler(
     async (req, res) => {
@@ -25,7 +25,7 @@ const registerUser = asyncHandler(
         }
 
         const existedUser = await User.findOne({
-            $or: [{username}, {email}]
+            $or: [{ username }, { email }]
         })
 
         if (existedUser) {
@@ -40,13 +40,13 @@ const registerUser = asyncHandler(
         })
 
         const avatarLocalPath = req.files?.avatar[0]?.path;
-        
+
         if (!avatarLocalPath) {
             throw new ApiError(400, "Avatar file is required");
         }
-        
+
         const avatar = await uploadOnCloudinary(avatarLocalPath, "avatars/", "avatar_" + user.username);
-        
+
         if (!avatar) throw new ApiError(500, "Failed to upload avatar");
         user.avatar = avatar.secure_url;
 
@@ -63,7 +63,7 @@ const registerUser = asyncHandler(
         }
 
         await user.save();
-        
+
         const createdUser = await User.findById(user._id);
 
         if (!createdUser) {
@@ -79,4 +79,106 @@ const registerUser = asyncHandler(
     }
 )
 
-export { registerUser };
+const loginUser = asyncHandler(
+    async (req, user) => {
+        // req body -> data
+        // username or email
+        // find the user
+        // password check
+        // access and refresh token
+        // send cookies
+
+        const { identifier, password } = req.body;
+
+        if (!identifier || !password) throw new ApiError(400, "All fields are required");
+
+        let user;
+
+        const usernameRegex = /^(?=.*[a-zA-Z])(?=.*[0-9])[A-Za-z0-9]+$/;
+        const emailRegex = /[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?/i;
+
+        if (usernameRegex.test(identifier)) {
+            user = await User.findOne({ username: identifier.toLowerCase() }).select("+password");
+        } else if (emailRegex.test(identifier)) {
+            user = await User.findOne({ email: identifier.toLowerCase() }).select("+password");
+        }
+
+        if (!user) {
+            throw new ApiError(401, "Invalid credentials!");
+        } else {
+            const isCorrectPassword = await user.isPasswordCorrect(password);
+
+            if (isCorrectPassword) {
+                const accessToken = user.generateAccessToken();
+                const refreshToken = user.generateRefreshToken();
+
+                await user.updateOne({
+                    $set: {
+                        refreshToken
+                    }
+                });
+
+                const options = {
+                    httpOnly: true,
+                    secure: true
+                }
+
+                const loggedInUser = await User.findById(user._id).select('-refreshToken');
+
+                return res
+                    .status(200)
+                    .cookie('accesstoken', accessToken, {
+                        ...options,
+                        maxAge: 15 * 60 * 1000
+                    })
+                    .cookie('refreshtoken', refreshToken, {
+                        ...options,
+                        maxAge: 20 * 24 * 60 * 60 * 1000
+                    })
+                    .json(
+                        new ApiResponse(
+                            200,
+                            {
+                                user: loggedInUser,
+                                accessToken,
+                                refreshToken
+                            },
+                            "User loggedin successfully"
+                        )
+                    )
+            } else {
+                throw new ApiError(401, "Invalid credentials!")
+            }
+        }
+    }
+)
+
+const logoutUser = asyncHandler(
+    async (req, res) => {
+        await User.findByIdAndUpdate(
+            req.user._id,
+            {
+                $unset: {
+                    refreshToken: 1
+                }
+            },
+            {
+                new: true
+            }
+        )
+
+        return res
+            .status(200)
+            .clearCookie('accesstoken')
+            .clearCookie('refreshtoken')
+            .json(
+                new ApiResponse(
+                    200,
+                    null,
+                    "User logged out successfully"
+                )
+            )
+    }
+)
+
+export { registerUser, loginUser, logoutUser };
